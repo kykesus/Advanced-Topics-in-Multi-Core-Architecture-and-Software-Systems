@@ -1,60 +1,31 @@
-use clap::{App, Arg};
+use std::io::BufReader;
+use std::sync::mpsc;
 use std::thread;
-use std::{cmp::min, sync::mpsc};
 use std::{fs::File, io::BufRead, time::Instant};
-use std::{
-    io::{BufReader, Write},
-    vec,
-};
 
-struct Worker {
-    id: usize,
-    thread: Option<thread::JoinHandle<()>>,
-}
+struct Worker {}
 
 impl Worker {
-    fn new(id: usize, sender: mpsc::Sender<Vec<u64>>, data: Vec<u64>) -> Worker {
-        let thread = thread::spawn(move || {
-            println!("Start worker {}", id);
+    fn new(sender: mpsc::Sender<Vec<u64>>, data: Vec<u64>) {
+        thread::spawn(move || {
             let sorted = recursive_mergesort(data);
-            println!("Worker {} done", id);
-            sender.send(sorted);
+            sender.send(sorted).unwrap();
         });
-
-        Worker {
-            id,
-            thread: Some(thread),
-        }
     }
 }
 
 fn main() {
-    let matches = App::new("Multi-threaded Sorting")
-        .version("0.1.0")
-        .about("Sorts 64-bit numbers on parallel")
-        .arg(
-            Arg::with_name("threads")
-                .takes_value(true)
-                .help("Number of threads to use"),
-        )
-        .arg(
-            Arg::with_name("file")
-                .takes_value(true)
-                .help("Input file with numbers to sort"),
-        )
-        .get_matches();
+    let args: Vec<_> = std::env::args().collect();
 
     // Read user input
-    let filename = matches.value_of("file").unwrap_or("./input.txt");
-    let threads_num = match matches.value_of("threads") {
+    let filename = &args[2];
+    let threads_num = match args.get(1) {
         None => 1,
         Some(n) => match n.parse::<usize>() {
             Ok(s) => s,
             Err(_) => 1,
         },
     };
-    println!("{}", filename);
-    println!("{}", threads_num);
 
     // Read data to sort
     let file = File::open(filename).unwrap();
@@ -75,13 +46,15 @@ fn main() {
     println!("MergeSort: {:?}", start.elapsed().as_micros());
 
     // Print sorted output
-    // println!("{:?}", sorted);
+    for num in sorted {
+        println!("{}", num);
+    }
 
     // Write output to file
-    let output = File::create("./output.txt").unwrap();
-    for num in sorted {
-        writeln!(&output, "{}", num).expect("fail to write data");
-    }
+    // let output = File::create("./output.txt").unwrap();
+    // for num in sorted {
+    //     writeln!(&output, "{}", num).expect("fail to write data");
+    // }
 }
 
 fn parallel_mergesort(data: Vec<u64>, threads_num: usize) -> Vec<u64> {
@@ -89,27 +62,18 @@ fn parallel_mergesort(data: Vec<u64>, threads_num: usize) -> Vec<u64> {
     let mut sub_data = Vec::with_capacity(threads_num);
     let mut receivers = Vec::with_capacity(threads_num);
 
-    let mut chunk_size = data.len() / threads_num;
-    if data.len() % threads_num > 0 {
-        chunk_size += 1
-    };
-
-    println!("chunk size - {}", chunk_size);
-
     // Assign sub data to sort for each worker
     for id in 0..threads_num {
         let (job_tx, job_rx) = mpsc::channel();
         receivers.push(job_rx);
-        let lower_idx = id * chunk_size;
-        let upper_idx = min((id + 1) * chunk_size, data.len());
-        println!("Sort indices {}-{}", lower_idx, upper_idx - 1);
-        workers.push(Worker::new(id, job_tx, data[lower_idx..upper_idx].to_vec()));
+        let lower_idx = id * data.len() / threads_num;
+        let upper_idx = (id + 1) * data.len() / threads_num;
+        workers.push(Worker::new(job_tx, data[lower_idx..upper_idx].to_vec()));
     }
 
     // Get sorted data from workers
     for id in 0..threads_num {
         sub_data.push(receivers[id].recv().unwrap());
-        println!("Received data from worker {}", id);
     }
 
     // Merge sorted sub data
@@ -156,11 +120,18 @@ fn merge(vec1: Vec<u64>, vec2: Vec<u64>) -> Vec<u64> {
 }
 
 fn merge_vectors(vectors: Vec<Vec<u64>>) -> Vec<u64> {
-    let mut sorted = Vec::new();
-
-    for i in 0..vectors.len() {
-        sorted = merge(sorted, vectors[i].clone());
+    let n = vectors.len();
+    if n == 1 {
+        return vectors[0].clone();
     }
+    if n == 2 {
+        return merge(vectors[0].clone(), vectors[1].clone());
+    }
+
+    let sorted = merge(
+        merge_vectors(vectors[0..n / 2].to_vec()),
+        merge_vectors(vectors[n / 2..n].to_vec()),
+    );
 
     sorted
 }
