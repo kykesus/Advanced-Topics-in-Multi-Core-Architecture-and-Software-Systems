@@ -1,0 +1,13 @@
+#!/bin/bash
+
+# Export my udocker directory envar
+export UDOCKER_DIR=/vol/scratch/omerber/repo
+
+# Run rust container and build the program
+udocker run --volume=${PWD}:/parsort \
+            --workdir=/parsort \
+            rust:slim \
+            cargo build --release --target-dir /parsort
+
+# Copy executable to current directory
+cp release/parsort parsort
